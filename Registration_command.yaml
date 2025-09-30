@@ -1,0 +1,77 @@
+---
+- name: Get Rancher cluster registration command with correct checksum
+  hosts: localhost
+  gather_facts: false
+  vars:
+    rancher_url: "https://k8smanager.comtegra.pl"
+    api_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w"
+    cluster_name: "k8-cluster"
+    # Hardcode only the correct checksum
+    correct_checksum: "3d1a4c798bf0a64a3ae60ebacbac9c86a4e9e481b00e6e6ee0381b747cff5466"
+
+  tasks:
+    - name: Fetch cluster details
+      uri:
+        url: "{{ rancher_url }}/v3/clusters?name={{ cluster_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ api_token }}"
+          Content-Type: "application/json"
+        validate_certs: false
+      register: cluster_list_response
+
+    - name: Fail if cluster not found
+      fail:
+        msg: "Cluster named {{ cluster_name }} not found!"
+      when: cluster_list_response.json.data | length == 0
+
+    - name: Set cluster ID
+      set_fact:
+        cluster_id: "{{ cluster_list_response.json.data[0].id }}"
+
+    - name: Fetch registration tokens for this cluster
+      uri:
+        url: "{{ rancher_url }}/v3/clusterregistrationtokens?clusterId={{ cluster_id }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ api_token }}"
+          Content-Type: "application/json"
+        validate_certs: false
+      register: tokens_response
+
+    - name: Fail if no registration tokens found
+      fail:
+        msg: "No registration tokens found for cluster {{ cluster_name }}!"
+      when: tokens_response.json.data | length == 0
+
+    - name: Set token fact (generated through API)
+      set_fact:
+        token: "{{ tokens_response.json.data[0].token }}"
+
+    - name: Build final registration command with correct checksum
+      set_fact:
+        registration_cmd: "curl --insecure -fL {{ rancher_url }}/system-agent-install.sh | sudo sh -s - --server {{ rancher_url }} --label 'cattle.io/os=linux' --token {{ token }} --ca-checksum {{ correct_checksum }} --etcd --controlplane --worker"
+
+    - name: Print the final registration command
+      debug:
+        msg: "{{ registration_cmd }}"
+
+    - name: Create registration script file
+      copy:
+        content: |
+          #!/bin/bash
+          {{ registration_cmd }}
+        dest: "./register-{{ cluster_name }}.sh"
+        mode: '0755'
+
+    - name: Display success message
+      debug:
+        msg: |
+          ✅ Registration command generated successfully!
+          
+          🔑 Token: {{ token }} (generated through API)
+          🔐 CA Checksum: {{ correct_checksum }} (hardcoded correct value)
+          
+          📁 Script created: ./register-{{ cluster_name }}.sh
+          
+          Usage: ./register-{{ cluster_name }}.sh
