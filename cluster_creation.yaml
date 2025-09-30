@@ -17,7 +17,7 @@
         body_format: json
         body:
           metadata:
-            name: "k8-cluster"
+            name: "{{ cluster_name }}"
             namespace: "fleet-default"
           spec:
             kubernetesVersion: "v1.33.4+rke2r1"
