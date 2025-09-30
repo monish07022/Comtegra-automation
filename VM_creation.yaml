@@ -176,17 +176,11 @@
               BASE_CMD="{{ node_command }}"
               # Replace the curl command to add --insecure flag to curl, not the installer
               MODIFIED_CMD=$(echo "$BASE_CMD" | sed 's/curl /curl --insecure /g')
-              # Add specific roles
+              # Add specific roles based on node type
               FINAL_CMD="$MODIFIED_CMD"
-              {% if 'etcd' in item.1 %}
-              FINAL_CMD="$FINAL_CMD --etcd"
-              {% endif %}
-              {% if 'controlplane' in item.1 %}
-              FINAL_CMD="$FINAL_CMD --controlplane"
-              {% endif %}
-              {% if 'worker' in item.1 %}
-              FINAL_CMD="$FINAL_CMD --worker"
-              {% endif %}
+              {{ 'FINAL_CMD="$FINAL_CMD --etcd"' if 'etcd' in item.1 else '' }}
+              {{ 'FINAL_CMD="$FINAL_CMD --controlplane"' if 'controlplane' in item.1 else '' }}
+              {{ 'FINAL_CMD="$FINAL_CMD --worker"' if 'worker' in item.1 else '' }}
               FINAL_CMD="$FINAL_CMD --node-name rancher-node-{{ item.0 }}"
               echo "Final command: $FINAL_CMD"
               eval $FINAL_CMD
@@ -223,10 +217,10 @@
           
           # rancher-node-{{ vm.0 }} ({{ vm.1 }})
           # Replace 'curl ' with 'curl --insecure ' in the node command
-          {{ node_command | replace('curl ', 'curl --insecure ') }} \
-          {% if 'etcd' in vm.1 %}--etcd {% endif %}\
-          {% if 'controlplane' in vm.1 %}--controlplane {% endif %}\
-          {% if 'worker' in vm.1 %}--worker {% endif %}\
+          {{ node_command | replace('curl ', 'curl --insecure ') }}\
+          {% if 'etcd' in vm.1 %} --etcd{% endif %}\
+          {% if 'controlplane' in vm.1 %} --controlplane{% endif %}\
+          {% if 'worker' in vm.1 %} --worker{% endif %}\
           --node-name rancher-node-{{ vm.0 }}
           
           {% endfor %}
