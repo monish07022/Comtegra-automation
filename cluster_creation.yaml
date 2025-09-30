@@ -4,29 +4,11 @@
   gather_facts: false
   vars:
     rancher_url: "https://k8smanager.comtegra.pl"
-    # 🔒 Do NOT hardcode tokens. Use env vars or Ansible Vault.
-    api_token: "token-hjlxs:zggvwlrx6s466dmhtb8qph5fx5d4mnjcgtz2sdvhngjrgjrfsrwpv6"
-
-  pre_tasks:
-    - name: Detect if sudo is available
-      ansible.builtin.command: which sudo
-      register: sudo_check
-      changed_when: false
-      failed_when: false
+    api_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w"
 
   tasks:
-    - name: Ensure Rancher hostname is resolvable
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        line: "10.1.77.17 k8smanager.comtegra.pl"
-        state: present
-        create: yes
-        backup: yes
-      become: true
-      become_method: "{{ 'sudo' if sudo_check.rc == 0 else 'su' }}"
-
     - name: Create OpenStack cluster in Rancher
-      ansible.builtin.uri:
+      uri:
         url: "{{ rancher_url }}/v1/provisioning.cattle.io.clusters"
         method: POST
         headers:
@@ -38,7 +20,6 @@
             name: "k8-cluster"
             namespace: "fleet-default"
           spec:
-            # ⚠ Double-check this version actually exists in your Rancher/RKE2 catalog
             kubernetesVersion: "v1.33.4+rke2r1"
             rkeConfig:
               machinePools: []
@@ -47,5 +28,5 @@
       register: create_cluster_response
 
     - name: Show response from Rancher API
-      ansible.builtin.debug:
+      debug:
         var: create_cluster_response.json
