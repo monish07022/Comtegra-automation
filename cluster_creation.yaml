@@ -5,51 +5,10 @@
   vars:
     rancher_url: "https://k8smanager.comtegra.pl"
     api_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w"
+    cluster_name: "k8-cluster"
 
   tasks:
-    - name: Test basic connectivity to Rancher server
-      uri:
-        url: "{{ rancher_url }}"
-        method: GET
-        validate_certs: false
-        timeout: 30
-      register: connectivity_test
-      ignore_errors: yes
-
-    - name: Show connectivity test result
-      debug:
-        var: connectivity_test
-
-    - name: Check if Rancher hostname resolves
-      shell: "nslookup k8smanager.comtegra.pl || dig k8smanager.comtegra.pl"
-      register: dns_check
-      ignore_errors: yes
-
-    - name: Show DNS resolution result
-      debug:
-        var: dns_check
-
-    - name: Test if port 443 is reachable
-      wait_for:
-        host: k8smanager.comtegra.pl
-        port: 443
-        timeout: 30
-      register: port_check
-      ignore_errors: yes
-
-    - name: Show port check result
-      debug:
-        var: port_check
-
-    - name: Add Rancher server to hosts file if DNS fails
-      lineinfile:
-        path: /etc/hosts
-        line: "10.1.77.17 k8smanager.comtegra.pl"
-        state: present
-      when: dns_check is failed or port_check is failed
-      become: yes
-
-    - name: Create OpenStack cluster in Rancher
+    - name: Create cluster in Rancher
       uri:
         url: "{{ rancher_url }}/v1/provisioning.cattle.io.clusters"
         method: POST
@@ -59,7 +18,7 @@
         body_format: json
         body:
           metadata:
-            name: "k8-cluster"
+            name: "{{ cluster_name }}"
             namespace: "fleet-default"
           spec:
             kubernetesVersion: "v1.33.4+rke2r1"
@@ -67,9 +26,17 @@
               machinePools: []
         validate_certs: false
         status_code: 201
-        timeout: 60
       register: create_cluster_response
 
-    - name: Show response from Rancher API
+    - name: Show cluster creation response
       debug:
-        var: create_cluster_response
+        var: create_cluster_response.json
+
+    - name: Save cluster ID for future use
+      set_fact:
+        cluster_id: "{{ create_cluster_response.json.id }}"
+      when: create_cluster_response.json.id is defined
+
+    - name: Show cluster registration command
+      debug:
+        msg: "Cluster created successfully. ID: {{ cluster_id | default('Not available') }}"
