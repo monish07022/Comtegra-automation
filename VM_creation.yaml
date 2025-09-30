@@ -1,0 +1,278 @@
+---
+- name: Create multiple VMs on OpenStack and auto-register to Rancher
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars:
+    # Rancher details
+    rancher_url: "https://k8smanager.comtegra.pl"
+    rancher_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w"
+    cluster_name: "{{ cluster_name }}"
+
+    # Surveyed variables from AWX
+    vm_count: "{{ vm_count | int }}"
+    node_roles: "{{ node_roles }}"
+    vm_net: "{{ vm_net }}"
+    vm_flavor: "{{ vm_flavor }}"
+
+    # Static VM details
+    vm_image: "4e04bf46-b48f-4bd2-a15a-efdd3a666d43"
+    vm_keypair: "k8s"
+
+    # OpenStack authentication
+    os_auth_url: "https://10.1.71.88:5000/v3"
+    os_project_name: "admin"
+    os_project_id: "e9f88faebaa44e3893fd26f9d41f9927"
+    os_project_domain_id: "9021632abac74b018ee13e95c5e81bea"
+    os_username: "admin"
+    os_user_domain_name: "admin_domain"
+    os_password: "Yaoki0kohghoQu9y"
+    os_region_name: "RegionOne"
+    os_interface: "public"
+    os_identity_api_version: "3"
+
+  tasks:
+
+    - name: Validate vm_count is a positive integer
+      fail:
+        msg: "vm_count must be a positive integer. Got {{ vm_count }}."
+      when: vm_count < 1
+
+    - name: Ensure Rancher hostname is resolvable on control node
+      become: true
+      lineinfile:
+        path: /etc/hosts
+        line: "10.1.77.17 k8smanager.comtegra.pl"
+        state: present
+
+    - name: Convert comma-separated roles string into a list
+      set_fact:
+        parsed_roles: "{{ node_roles.split(',') }}"
+
+    - name: Validate node_roles length matches vm_count
+      assert:
+        that:
+          - parsed_roles | length == vm_count
+        fail_msg: "node_roles must contain exactly {{ vm_count }} comma-separated roles. Got: {{ parsed_roles | length }}"
+
+    - name: Generate VM list
+      set_fact:
+        vm_list: "{{ query('sequence', 'start=1 end=' + vm_count|string) }}"
+
+    - name: Combine VM index and role
+      set_fact:
+        vm_role_map: "{{ vm_list | zip(parsed_roles) | list }}"
+
+    - name: Display VM-to-Role assignment
+      debug:
+        msg: "VM rancher-node-{{ item.0 }} will be assigned role(s): {{ item.1 }}"
+      loop: "{{ vm_role_map }}"
+
+    - name: Get cluster ID from Rancher
+      uri:
+        url: "{{ rancher_url }}/v3/clusters?name={{ cluster_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ rancher_token }}"
+          Content-Type: "application/json"
+        validate_certs: no
+      register: cluster_info
+
+    - name: Debug cluster info
+      debug:
+        var: cluster_info.json
+
+    - name: Fail if cluster not found
+      fail:
+        msg: "Cluster '{{ cluster_name }}' not found in Rancher!"
+      when: cluster_info.json.data | length == 0
+
+    - name: Extract cluster ID
+      set_fact:
+        cluster_id: "{{ cluster_info.json.data[0].id }}"
+
+    - name: Create cluster registration token
+      uri:
+        url: "{{ rancher_url }}/v3/clusterRegistrationTokens"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ rancher_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          clusterId: "{{ cluster_id }}"
+        validate_certs: no
+        status_code: 201
+      register: token_create
+      ignore_errors: yes
+
+    - name: Wait for registration token to be ready
+      uri:
+        url: "{{ rancher_url }}/v3/clusterRegistrationTokens?clusterId={{ cluster_id }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ rancher_token }}"
+          Content-Type: "application/json"
+        validate_certs: no
+      register: reg_info
+      until: >
+        reg_info.json.data[0].nodeCommand is defined and 
+        reg_info.json.data[0].nodeCommand != ""
+      retries: 20
+      delay: 5
+
+    - name: Debug registration token details
+      debug:
+        msg: |
+          🔍 REGISTRATION TOKEN DETAILS:
+          - Cluster: {{ cluster_name }}
+          - Cluster ID: {{ cluster_id }}
+          - Token: {{ reg_info.json.data[0].token }}
+          - Node Command Available: {{ reg_info.json.data[0].nodeCommand is defined }}
+
+    - name: Extract node command and token
+      set_fact:
+        node_command: "{{ reg_info.json.data[0].nodeCommand }}"
+        registration_token: "{{ reg_info.json.data[0].token }}"
+
+    - name: Debug the actual node command
+      debug:
+        msg: "📝 NODE COMMAND: {{ node_command }}"
+
+    - name: Create cloud-init files with PROPER INSECURE handling
+      copy:
+        dest: "/tmp/cloud-init-rancher-node-{{ item.0 }}.yml"
+        content: |
+          #cloud-config
+          package_update: true
+          packages:
+            - curl
+            - docker.io
+          write_files:
+            - path: /etc/hosts
+              permissions: '0644'
+              owner: root:root
+              append: true
+              content: |
+                10.1.77.17 k8smanager.comtegra.pl
+          runcmd:
+            - |
+              echo "=== Starting Rancher Node Registration ==="
+              echo "Node: rancher-node-{{ item.0 }}"
+              echo "Role: {{ item.1 }}"
+              echo "Cluster: {{ cluster_name }}"
+            - echo "10.1.77.17 k8smanager.comtegra.pl" >> /etc/hosts
+            - systemctl enable docker
+            - systemctl start docker
+            - usermod -aG docker ubuntu
+            - sleep 10
+            - |
+              echo "=== Testing Rancher connectivity ==="
+              curl -k -I {{ rancher_url }} && echo "✅ Rancher is reachable" || echo "❌ Cannot reach Rancher"
+            - |
+              echo "=== Installing Rancher System Agent with PROPER INSECURE handling ==="
+              # Extract the base command and modify it to use --insecure properly
+              BASE_CMD="{{ node_command }}"
+              # Replace the curl command to add --insecure flag to curl, not the installer
+              MODIFIED_CMD=$(echo "$BASE_CMD" | sed 's/curl /curl --insecure /g')
+              # Add specific roles
+              FINAL_CMD="$MODIFIED_CMD"
+              {% if 'etcd' in item.1 %}
+              FINAL_CMD="$FINAL_CMD --etcd"
+              {% endif %}
+              {% if 'controlplane' in item.1 %}
+              FINAL_CMD="$FINAL_CMD --controlplane"
+              {% endif %}
+              {% if 'worker' in item.1 %}
+              FINAL_CMD="$FINAL_CMD --worker"
+              {% endif %}
+              FINAL_CMD="$FINAL_CMD --node-name rancher-node-{{ item.0 }}"
+              echo "Final command: $FINAL_CMD"
+              eval $FINAL_CMD
+            - |
+              echo "=== Registration Command Executed ==="
+              echo "Waiting for agent to start..."
+              sleep 30
+            - |
+              echo "=== Checking Rancher System Agent Status ==="
+              systemctl status rancher-system-agent --no-pager || echo "Agent service not found yet"
+            - |
+              echo "=== Checking Docker Containers ==="
+              docker ps -a || echo "Docker check failed"
+            - |
+              echo "=== Checking system logs ==="
+              journalctl -u rancher-system-agent --no-pager -n 20 || echo "No rancher agent logs yet"
+            - |
+              echo "=== Registration Process Complete ==="
+      loop: "{{ vm_role_map }}"
+      loop_control:
+        label: "rancher-node-{{ item.0 }} - {{ item.1 }}"
+
+    - name: Save registration commands for manual testing
+      copy:
+        content: |
+          MANUAL REGISTRATION COMMANDS (WITH PROPER INSECURE)
+          ===================================================
+          Cluster: {{ cluster_name }}
+          Cluster ID: {{ cluster_id }}
+          Token: {{ registration_token }}
+          
+          Manual Test Commands (run on VMs):
+          {% for vm in vm_role_map %}
+          
+          # rancher-node-{{ vm.0 }} ({{ vm.1 }})
+          # Replace 'curl ' with 'curl --insecure ' in the node command
+          {{ node_command | replace('curl ', 'curl --insecure ') }} \
+          {% if 'etcd' in vm.1 %}--etcd {% endif %}\
+          {% if 'controlplane' in vm.1 %}--controlplane {% endif %}\
+          {% if 'worker' in vm.1 %}--worker {% endif %}\
+          --node-name rancher-node-{{ vm.0 }}
+          
+          {% endfor %}
+        dest: "/tmp/{{ cluster_name }}-manual-commands.txt"
+      delegate_to: localhost
+
+    - name: Create VMs on OpenStack with cloud-init
+      openstack.cloud.server:
+        state: present
+        name: "rancher-node-{{ item.0 }}"
+        image: "{{ vm_image }}"
+        flavor: "{{ vm_flavor }}"
+        key_name: "{{ vm_keypair }}"
+        network: "{{ vm_net }}"
+        userdata: "{{ lookup('file', '/tmp/cloud-init-rancher-node-' + item.0|string + '.yml') }}"
+        auto_ip: yes
+        timeout: 600
+        wait: yes
+        validate_certs: false
+      environment:
+        OS_AUTH_URL: "{{ os_auth_url }}"
+        OS_PROJECT_NAME: "{{ os_project_name }}"
+        OS_PROJECT_ID: "{{ os_project_id }}"
+        OS_PROJECT_DOMAIN_ID: "{{ os_project_domain_id }}"
+        OS_USERNAME: "{{ os_username }}"
+        OS_USER_DOMAIN_NAME: "{{ os_user_domain_name }}"
+        OS_PASSWORD: "{{ os_password }}"
+        OS_REGION_NAME: "{{ os_region_name }}"
+        OS_INTERFACE: "{{ os_interface }}"
+        OS_IDENTITY_API_VERSION: "{{ os_identity_api_version }}"
+      register: new_vms
+      loop: "{{ vm_role_map }}"
+      loop_control:
+        label: "rancher-node-{{ item.0 }} - {{ item.1 }}"
+
+    - name: Show created VM details with IPs
+      debug:
+        msg: "✅ VM rancher-node-{{ item.0 }} (role: {{ item.1 }}) - IP: {{ new_vms.results[item.0 | int - 1].server.public_v4 | default(new_vms.results[item.0 | int - 1].server.private_v4) | default('No IP') }}"
+      loop: "{{ vm_role_map }}"
+      loop_control:
+        label: "rancher-node-{{ item.0 }} - {{ item.1 }}"
+
+    - name: Clean up temporary cloud-init files
+      file:
+        path: "/tmp/cloud-init-rancher-node-{{ item.0 }}.yml"
+        state: absent
+      loop: "{{ vm_role_map }}"
+      loop_control:
+        label: "rancher-node-{{ item.0 }} - {{ item.1 }}"
