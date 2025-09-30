@@ -1,0 +1,32 @@
+---
+- name: Create Rancher cluster via API
+  hosts: localhost
+  gather_facts: false
+  vars:
+    rancher_url: "https://k8smanager.comtegra.pl"
+    api_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w""
+
+  tasks:
+    - name: Create OpenStack cluster in Rancher
+      uri:
+        url: "{{ rancher_url }}/v1/provisioning.cattle.io.clusters"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ api_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          metadata:
+            name: "k8-cluster"
+            namespace: "fleet-default"
+          spec:
+            kubernetesVersion: "v1.33.4+rke2r1"
+            rkeConfig:
+              machinePools: []
+        validate_certs: false
+        status_code: 201
+      register: create_cluster_response
+
+    - name: Show response from Rancher API
+      debug:
+        var: create_cluster_response.json
