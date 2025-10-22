@@ -6,7 +6,7 @@
 
   vars:
     # Rancher details
-    rancher_url: "https://192.168.210.118/"
+    rancher_url: "https://192.168.210.118"
     rancher_token: "token-bffdx:65cgfs87t6krrrhmfv6xqcflkc6hgjqk2v2rnxq9ppqn7xrxnfctnc"
     cluster_name: "{{ cluster_name }}"
 
