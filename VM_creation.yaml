@@ -6,8 +6,8 @@
 
   vars:
     # Rancher details
-    rancher_url: "https://k8smanager.comtegra.pl"
-    rancher_token: "token-p8htt:zmjjkpcfzb5gdrmq5djfsm4wrzszk9kb8fbqjpng9pvkmqm4fz762w"
+    rancher_url: "https://192.168.210.118/"
+    rancher_token: "token-bffdx:65cgfs87t6krrrhmfv6xqcflkc6hgjqk2v2rnxq9ppqn7xrxnfctnc"
     cluster_name: "{{ cluster_name }}"
 
     # Surveyed variables from AWX
@@ -17,17 +17,17 @@
     vm_flavor: "{{ vm_flavor }}"
 
     # Static VM details
-    vm_image: "4e04bf46-b48f-4bd2-a15a-efdd3a666d43"
+    vm_image: "a997754d-6cdf-4a21-8e52-5df389d3f7c5"
     vm_keypair: "k8s"
 
     # OpenStack authentication
-    os_auth_url: "https://10.1.71.88:5000/v3"
+    os_auth_url: "http://192.168.170.50:5000/v3"
     os_project_name: "admin"
-    os_project_id: "e9f88faebaa44e3893fd26f9d41f9927"
-    os_project_domain_id: "9021632abac74b018ee13e95c5e81bea"
+    os_project_id: "7cc02c879bfe4cfdb55523c6b30f5cc3"
+    os_project_domain_id: "default"
     os_username: "admin"
-    os_user_domain_name: "admin_domain"
-    os_password: "Yaoki0kohghoQu9y"
+    os_user_domain_name: "Default"
+    os_password: "bLEZFvatBShkvUZyKrasUjmNdTTc9c3HcxWykrro"
     os_region_name: "RegionOne"
     os_interface: "public"
     os_identity_api_version: "3"
