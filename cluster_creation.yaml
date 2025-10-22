@@ -4,7 +4,7 @@
   gather_facts: false
   vars:
     rancher_url: "https://192.168.210.118"
-    api_token: "token-bffdx:65cgfs87t6krrrhmfv6xqcflkc6hgjqk2v2rnxq9ppqn7xrxnfctnc"
+    api_token: "token-dp6np:fngmsbrhnj2h2vt9v89hm8hzcssk2msq7sq5jnq45zqfng5j87g89c"
 
   tasks:
     - name: Create OpenStack cluster in Rancher
